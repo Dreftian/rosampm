@@ -1,4 +1,4 @@
-# 🌹 RosaMPM
+# 🌹 Rosa PM
 
 > **Dedicado para ti: Rosa Pinedo <3**
 
@@ -41,7 +41,7 @@ Luego abre `http://localhost:8080` y **haz scroll** para ver la magia.
 ## 🏗️ Arquitectura
 
 ```
-RosaMPM/
+rosa-pm/
 ├── index.html              ← HTML semántico, estructura limpia
 ├── css/
 │   └── styles.css          ← Estilos organizados por sección, responsive
