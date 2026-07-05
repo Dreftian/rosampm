@@ -1,8 +1,11 @@
 /* ============================================================
    video-scroll.js — Scroll-driven video background
-   Extracts frames from the existing <video> element (no double fetch)
-   Maps frames to scroll position with reduced memory footprint
+   Uses fetch() + blob URL (same-origin) to avoid CORS tainting.
+   Extracts frames and maps them to scroll position.
    ============================================================ */
+
+const VIDEO_URL =
+  'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260616_212935_bbf608da-62d1-4f25-9be4-c346e4d09cc8.mp4';
 
 export function initVideoScroll() {
   const canvas = document.getElementById('video-canvas');
@@ -19,6 +22,7 @@ export function initVideoScroll() {
   let lastFrameIndex = -1;
   let videoSeeking = false;
   let rafId = null;
+  let objectUrl = null;
 
   function resizeCanvas() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -34,23 +38,29 @@ export function initVideoScroll() {
 
   async function extractFrames() {
     try {
-      // Wait for video metadata
+      // Download video via fetch (respects CORS) → blob → blob URL (same-origin, no tainting)
+      const response = await fetch(VIDEO_URL, { mode: 'cors' });
+      if (!response.ok) throw new Error('Video fetch failed: ' + response.status);
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.crossOrigin = 'anonymous';
+      video.preload = 'auto';
+      video.src = objectUrl;
+
       await new Promise((resolve, reject) => {
-        if (videoEl.readyState >= 1) {
-          resolve();
-          return;
-        }
-        const onMeta = () => { videoEl.removeEventListener('loadedmetadata', onMeta); resolve(); };
-        videoEl.addEventListener('loadedmetadata', onMeta);
-        setTimeout(() => { videoEl.removeEventListener('loadedmetadata', onMeta); reject(new Error('Video metadata timeout')); }, 15000);
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error('Video load error'));
+        setTimeout(() => reject(new Error('Video metadata timeout')), 15000);
       });
 
-      const video = videoEl; // Use existing video element — no double fetch!
-      const scale = Math.min(1, 960 / video.videoWidth); // More aggressive scaling for mobile
+      // Memory-optimized scaling and frame count
+      const scale = Math.min(1, 960 / video.videoWidth);
       const scaledWidth = Math.round(video.videoWidth * scale);
       const scaledHeight = Math.round(video.videoHeight * scale);
-
-      // Reduced frame count: max 80 instead of 150
       const frameCount = Math.max(30, Math.min(80, Math.round(video.duration * 16)));
 
       for (let i = 0; i < frameCount; i++) {
@@ -77,7 +87,7 @@ export function initVideoScroll() {
       if (frames.length > 0) {
         framesReady = true;
         canvas.style.visibility = 'visible';
-        videoEl.style.display = 'none'; // hide video — canvas has the frames now
+        videoEl.style.display = 'none'; // Hide DOM video — canvas has the frames
       }
     } catch (e) {
       console.warn('Frame extraction failed, falling back to video seeking:', e.message);
@@ -126,6 +136,7 @@ export function initVideoScroll() {
       isFinite(videoEl.duration) &&
       videoEl.readyState >= 1
     ) {
+      // Fallback: seek the DOM video directly while frames aren't ready
       const target = progress * videoEl.duration;
       if (!videoSeeking && Math.abs(videoEl.currentTime - target) > 0.05) {
         videoSeeking = true;
@@ -136,7 +147,7 @@ export function initVideoScroll() {
     rafId = requestAnimationFrame(videoTick);
   }
 
-  // Event handlers
+  // Event handlers for fallback video seeking
   videoEl.addEventListener('seeked', () => { videoSeeking = false; });
   videoEl.addEventListener('stalled', () => { videoSeeking = false; });
   videoEl.addEventListener('loadeddata', () => { videoEl.currentTime = 0; });
@@ -152,5 +163,6 @@ export function initVideoScroll() {
     if (rafId) cancelAnimationFrame(rafId);
     window.removeEventListener('resize', resizeCanvas);
     frames.forEach(f => { try { f.close(); } catch (e) { /* ignore */ } });
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
   };
 }
